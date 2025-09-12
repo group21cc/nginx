@@ -6,7 +6,7 @@ pipeline {
         GITHUB_REPO = "https://github.com/group21cc/nginx.git"
 
         // Docker & Nexus settings
-        NEXUS_URL = "http://localhost:8888/#admin/repository/repositories:test"
+        NEXUS_URL = "http://localhost:8888/repository/test/"
         DOCKER_IMAGE = "${NEXUS_URL}/repository/docker-hosted/nginx"
         DOCKER_TAG = "v1.${env.BUILD_NUMBER}"  // dynamic tag per build
         DOCKER_CREDENTIALS = "nexus-docker-credentials"
