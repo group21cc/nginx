@@ -6,12 +6,12 @@ pipeline {
         GITHUB_REPO = "https://github.com/group21cc/nginx.git"
 
         // Docker & Nexus settings
-        NEXUS_URL = "http://localhost:8888/repository/test/"
-        DOCKER_IMAGE = "${NEXUS_URL}/repository/docker-hosted/nginx"
-        DOCKER_TAG = "v1.${env.BUILD_NUMBER}"  // dynamic tag per build
+        NEXUS_REGISTRY = "localhost:8888"                 // registry host:port
+        DOCKER_REPO = "docker-hosted/nginx"               // repo in Nexus
+        DOCKER_TAG = "v1.${env.BUILD_NUMBER}"             // dynamic tag per build
         DOCKER_CREDENTIALS = "nexus-docker-credentials"
 
-        // Kubernetes credentials (stored in Jenkins)
+        // Kubernetes credentials
         KUBECONFIG_CREDENTIALS = "kubeconfig"
         K8S_DEPLOYMENT = "nginx-deployment"
         K8S_CONTAINER = "nginx"
@@ -24,18 +24,24 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
-            steps {
-                sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
+        stage('Build & Push with Kaniko') {
+            agent {
+                docker {
+                    image 'gcr.io/kaniko-project/executor:latest'
+                    args '-v /kaniko/.docker:/kaniko/.docker -v $WORKSPACE:/workspace'
+                }
             }
-        }
-
-        stage('Push to Nexus') {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS}", usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh """
-                        echo $PASS | docker login ${NEXUS_URL} -u $USER --password-stdin
-                        docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
+                        mkdir -p /kaniko/.docker
+                        echo "{\\"auths\\":{\\"${NEXUS_REGISTRY}\\":{\\"username\\":\\"$USER\\",\\"password\\":\\"$PASS\\"}}}" > /kaniko/.docker/config.json
+
+                        /kaniko/executor \
+                          --context /workspace \
+                          --dockerfile /workspace/Dockerfile \
+                          --destination ${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG} \
+                          --insecure --skip-tls-verify
                     """
                 }
             }
@@ -46,7 +52,7 @@ pipeline {
                 withCredentials([file(credentialsId: "${KUBECONFIG_CREDENTIALS}", variable: 'KUBECONFIG_FILE')]) {
                     sh """
                         export KUBECONFIG=$KUBECONFIG_FILE
-                        kubectl set image deployment/${K8S_DEPLOYMENT} ${K8S_CONTAINER}=${DOCKER_IMAGE}:${DOCKER_TAG} --record
+                        kubectl set image deployment/${K8S_DEPLOYMENT} ${K8S_CONTAINER}=${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG} --record
                         kubectl rollout status deployment/${K8S_DEPLOYMENT}
                     """
                 }
