@@ -25,19 +25,16 @@ pipeline {
         }
 
         stage('Build & Push with Kaniko') {
-            agent {
-                docker {
-                    image 'gcr.io/kaniko-project/executor:latest'
-                    args '-v /kaniko/.docker:/kaniko/.docker -v $WORKSPACE:/workspace'
-                }
-            }
             steps {
                 withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS}", usernameVariable: 'USER', passwordVariable: 'PASS')]) {
                     sh """
-                        mkdir -p /kaniko/.docker
-                        echo "{\\"auths\\":{\\"${NEXUS_REGISTRY}\\":{\\"username\\":\\"$USER\\",\\"password\\":\\"$PASS\\"}}}" > /kaniko/.docker/config.json
+                        mkdir -p /tmp/kaniko-docker
+                        echo "{\\"auths\\":{\\"${NEXUS_REGISTRY}\\":{\\"username\\":\\"$USER\\",\\"password\\":\\"$PASS\\"}}}" > /tmp/kaniko-docker/config.json
 
-                        /kaniko/executor \
+                        docker run --rm \
+                          -v \$(pwd):/workspace \
+                          -v /tmp/kaniko-docker:/kaniko/.docker \
+                          gcr.io/kaniko-project/executor:latest \
                           --context /workspace \
                           --dockerfile /workspace/Dockerfile \
                           --destination ${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG} \
