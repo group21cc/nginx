@@ -16,15 +16,16 @@ spec:
     }
 
     environment {
-        GITHUB_REPO = "https://github.com/group21cc/nginx.git"
-        NEXUS_REGISTRY = "localhost:8888"
-        DOCKER_REPO = "docker-hosted/nginx"
-        DOCKER_TAG = "v1.${env.BUILD_NUMBER}"
-        DOCKER_CREDENTIALS = "nexus-docker-credentials"
-        KUBECONFIG_CREDENTIALS = "kubeconfig"
-        K8S_DEPLOYMENT = "nginx-deployment"
-        K8S_CONTAINER = "nginx"
-    }
+    GITHUB_REPO = "https://github.com/group21cc/nginx.git"
+    NEXUS_REGISTRY = "nexus-service.nexus.svc.cluster.local:8888"   // <--- FIXED
+    DOCKER_REPO = "test/nginx"
+    DOCKER_TAG = "v1.${env.BUILD_NUMBER}"
+    DOCKER_CREDENTIALS = "nexus-docker-credentials"
+    KUBECONFIG_CREDENTIALS = "kubeconfig"
+    K8S_DEPLOYMENT = "nginx-deployment"
+    K8S_CONTAINER = "nginx"
+}
+
 
     stages {
         stage('Checkout') {
