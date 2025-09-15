@@ -68,8 +68,8 @@ spec:
             steps {
                 container('kubectl') {
                     sh """
-                    kubectl apply -f nginx-deployment.yaml -n ${K8S_NAMESPACE}
-                    kubectl apply -f nginx-service.yaml -n ${K8S_NAMESPACE}
+                    kubectl apply -f nginx-deployment.yaml -n jenkins
+                    kubectl apply -f nginx-service.yaml -n jenkins
                     """
                 }
             }
