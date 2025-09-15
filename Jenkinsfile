@@ -1,8 +1,6 @@
 pipeline {
     agent {
         kubernetes {
-            label 'docker-agent'
-            defaultContainer 'docker'
             yaml """
 apiVersion: v1
 kind: Pod
@@ -10,50 +8,90 @@ spec:
   containers:
   - name: docker
     image: docker:24.0-dind
+    securityContext:
+      privileged: true
     command:
     - cat
     tty: true
-    securityContext:
-      privileged: true
-    volumeMounts:
-    - name: docker-graph-storage
-      mountPath: /var/lib/docker
-  volumes:
-  - name: docker-graph-storage
-    emptyDir: {}
 """
         }
     }
+
     environment {
-        NEXUS_URL = 'nexus-service.nexus.svc.cluster.local:8081'
-        IMAGE_NAME = 'test/nginx'
-        IMAGE_TAG = 'v1.8'
+        // GitHub repo
+        GITHUB_REPO = "https://github.com/group21cc/nginx.git"
+
+        // Nexus internal DNS and port
+        NEXUS_REGISTRY = "nexus-service.jenkins.svc.cluster.local:8081"
+
+        // Docker repository and tag
+        DOCKER_REPO = "test/nginx"
+        DOCKER_TAG = "v1.${env.BUILD_NUMBER}"
+
+        // Jenkins credentials IDs
+        DOCKER_CREDENTIALS = "nexus-docker-credentials"
+        KUBECONFIG_CREDENTIALS = "kubeconfig"
+
+        // Kubernetes deployment info
+        K8S_DEPLOYMENT = "nginx-deployment"
+        K8S_CONTAINER = "nginx"
     }
+
     stages {
-        stage('Build Docker Image') {
+        stage('Checkout') {
             steps {
-                container('docker') {
-                    sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
-                }
+                git branch: 'main', url: "${GITHUB_REPO}"
             }
         }
-        stage('Push Docker Image to Nexus') {
+
+        stage('Build & Push Docker Image') {
             steps {
                 container('docker') {
-                    withCredentials([usernamePassword(credentialsId: 'nexus-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
-                        sh "docker login -u \$USER -p \$PASS ${NEXUS_URL}"
-                        sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${NEXUS_URL}/${IMAGE_NAME}:${IMAGE_TAG}"
-                        sh "docker push ${NEXUS_URL}/${IMAGE_NAME}:${IMAGE_TAG}"
+                    withCredentials([
+                        usernamePassword(
+                            credentialsId: "${DOCKER_CREDENTIALS}", 
+                            usernameVariable: 'USER', 
+                            passwordVariable: 'PASS'
+                        )
+                    ]) {
+                        sh """
+                        echo "Logging in to Nexus Docker Registry..."
+                        docker login -u $USER -p $PASS $NEXUS_REGISTRY
+
+                        echo "Building Docker image..."
+                        docker build -t ${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG} .
+
+                        echo "Pushing Docker image..."
+                        docker push ${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG}
+
+                        docker logout $NEXUS_REGISTRY
+                        """
                     }
                 }
             }
         }
-    }
-    post {
-        always {
-            container('docker') {
-                sh 'docker logout ${NEXUS_URL}'
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                withCredentials([
+                    file(credentialsId: "${KUBECONFIG_CREDENTIALS}", variable: 'KUBECONFIG_FILE')
+                ]) {
+                    sh """
+                    export KUBECONFIG=$KUBECONFIG_FILE
+                    kubectl set image deployment/${K8S_DEPLOYMENT} ${K8S_CONTAINER}=${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG} --record
+                    kubectl rollout status deployment/${K8S_DEPLOYMENT}
+                    """
+                }
             }
+        }
+    }
+
+    post {
+        success {
+            echo "Pipeline completed successfully! Docker image pushed and deployed."
+        }
+        failure {
+            echo "Pipeline failed. Check logs for details."
         }
     }
 }
