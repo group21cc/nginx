@@ -6,83 +6,49 @@ apiVersion: v1
 kind: Pod
 spec:
   containers:
-  - name: docker
-    image: docker:24
+  - name: kaniko
+    image: gcr.io/kaniko-project/executor:debug
     command:
     - cat
     tty: true
     volumeMounts:
-      - mountPath: /var/run/docker.sock
-        name: dockersock
+    - name: kaniko-secret
+      mountPath: /kaniko/.docker
+      readOnly: true
   volumes:
-    - name: dockersock
-      hostPath:
-        path: /var/run/docker.sock
+  - name: kaniko-secret
+    secret:
+      secretName: regcred   # secret for Nexus Docker registry creds
 """
         }
-    }
-
-    environment {
-        GITHUB_REPO       = "https://github.com/group21cc/nginx.git"
-        NEXUS_REGISTRY    = "nexus-service.jenkins.svc.cluster.local:8081"
-        NEXUS_REPO_NAME   = "test"          // Nexus Docker (hosted) repo name
-        DOCKER_IMAGE      = "nginx"
-        DOCKER_TAG        = "v1.${env.BUILD_NUMBER}"
-        DOCKER_CREDENTIALS = "nexus-docker-credentials"
-        K8S_DEPLOYMENT    = "nginx-deployment"
-        K8S_CONTAINER     = "nginx"
     }
 
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main', url: "${GITHUB_REPO}"
+                git url: 'https://github.com/group21cc/nginx.git', branch: 'main'
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Build & Push with Kaniko') {
             steps {
-                container('docker') {
-                    sh """
-                        docker build -t ${NEXUS_REGISTRY}/repository/${NEXUS_REPO_NAME}/${DOCKER_IMAGE}:${DOCKER_TAG} ./nginx
-                    """
-                }
-            }
-        }
-
-        stage('Push to Nexus') {
-            steps {
-                container('docker') {
-                    withCredentials([usernamePassword(
-                        credentialsId: "${DOCKER_CREDENTIALS}", 
-                        usernameVariable: 'USER', 
-                        passwordVariable: 'PASS'
-                    )]) {
-                        sh """
-                            echo "$PASS" | docker login ${NEXUS_REGISTRY} -u "$USER" --password-stdin
-                            docker push ${NEXUS_REGISTRY}/repository/${NEXUS_REPO_NAME}/${DOCKER_IMAGE}:${DOCKER_TAG}
-                        """
-                    }
+                container('kaniko') {
+                    sh '''
+                      /kaniko/executor \
+                        --context `pwd`/nginx \
+                        --dockerfile `pwd`/nginx/Dockerfile \
+                        --destination=nexus-service.jenkins.svc.cluster.local:8081/repository/test/nginx:v1.24 \
+                        --insecure \
+                        --skip-tls-verify
+                    '''
                 }
             }
         }
 
         stage('Deploy to Kubernetes') {
             steps {
-                sh """
-                    kubectl set image deployment/${K8S_DEPLOYMENT} ${K8S_CONTAINER}=${NEXUS_REGISTRY}/repository/${NEXUS_REPO_NAME}/${DOCKER_IMAGE}:${DOCKER_TAG} --record
-                    kubectl rollout status deployment/${K8S_DEPLOYMENT}
-                """
+                sh 'kubectl apply -f k8s-deployment.yaml -n jenkins'
             }
-        }
-    }
-
-    post {
-        success {
-            echo "✅ Pipeline completed successfully! Docker image pushed and deployed."
-        }
-        failure {
-            echo "❌ Pipeline failed. Check logs."
         }
     }
 }
