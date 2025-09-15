@@ -5,12 +5,24 @@ pipeline {
 apiVersion: v1
 kind: Pod
 spec:
+  serviceAccountName: jenkins   # Use the correct service account
   containers:
   - name: kaniko
     image: gcr.io/kaniko-project/executor:debug
     command:
     - cat
     tty: true
+    volumeMounts:
+      - name: workspace-volume
+        mountPath: /workspace
+  - name: jnlp
+    image: jenkins/inbound-agent:latest
+    volumeMounts:
+      - name: workspace-volume
+        mountPath: /home/jenkins/agent
+  volumes:
+    - name: workspace-volume
+      emptyDir: {}
 """
         }
     }
@@ -26,13 +38,13 @@ spec:
         DOCKER_REPO = "test/nginx"
         DOCKER_TAG = "v1.${env.BUILD_NUMBER}"
 
-        // Jenkins credentials IDs
+        // Jenkins credentials ID for Nexus
         DOCKER_CREDENTIALS = "nexus-docker-credentials"
-        KUBECONFIG_CREDENTIALS = "kubeconfig"
 
         // Kubernetes deployment info
         K8S_DEPLOYMENT = "nginx-deployment"
         K8S_CONTAINER = "nginx"
+        K8S_NAMESPACE = "jenkins"  // adjust if needed
     }
 
     stages {
@@ -53,12 +65,12 @@ spec:
                         )
                     ]) {
                         sh """
-                        mkdir -p /kaniko/.docker
-                        echo '{ "auths": { "${NEXUS_REGISTRY}": { "username": "$USER", "password": "$PASS" } } }' > /kaniko/.docker/config.json
+                        mkdir -p /workspace/.docker
+                        echo '{ "auths": { "${NEXUS_REGISTRY}": { "username": "$USER", "password": "$PASS" } } }' > /workspace/.docker/config.json
 
                         /kaniko/executor \
-                          --context \$(pwd) \
-                          --dockerfile \$(pwd)/Dockerfile \
+                          --context /workspace \
+                          --dockerfile /workspace/Dockerfile \
                           --destination ${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG} \
                           --insecure --skip-tls-verify \
                           --verbosity debug \
@@ -71,13 +83,11 @@ spec:
 
         stage('Deploy to Kubernetes') {
             steps {
-                withCredentials([
-                    file(credentialsId: "${KUBECONFIG_CREDENTIALS}", variable: 'KUBECONFIG_FILE')
-                ]) {
+                container('kaniko') { // reuse same pod; kaniko container has access
                     sh """
-                    export KUBECONFIG=$KUBECONFIG_FILE
-                    kubectl set image deployment/${K8S_DEPLOYMENT} ${K8S_CONTAINER}=${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG} --record
-                    kubectl rollout status deployment/${K8S_DEPLOYMENT}
+                    # Use in-cluster service account, no kubeconfig file needed
+                    kubectl --namespace=${K8S_NAMESPACE} set image deployment/${K8S_DEPLOYMENT} ${K8S_CONTAINER}=${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG} --record
+                    kubectl --namespace=${K8S_NAMESPACE} rollout status deployment/${K8S_DEPLOYMENT}
                     """
                 }
             }
