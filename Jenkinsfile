@@ -12,45 +12,50 @@ spec:
     - cat
     tty: true
     volumeMounts:
-    - name: kaniko-secret
+    - name: docker-config
       mountPath: /kaniko/.docker
-      readOnly: true
   volumes:
-  - name: kaniko-secret
-    secret:
-      secretName: regcred   # secret for Nexus Docker registry creds
+  - name: docker-config
+    projected:
+      sources:
+      - secret:
+          name: regcred
+          items:
+          - key: .dockerconfigjson
+            path: config.json
 """
         }
+    }
+
+    environment {
+        GITHUB_REPO     = "https://github.com/group21cc/nginx.git"
+        IMAGE_NAME      = "nginx"
+        NEXUS_REGISTRY  = "nexus-service.jenkins.svc.cluster.local:8081"
+        NEXUS_REPO_PATH = "repository/test"   // important: must include /repository/
+        IMAGE_TAG       = "${BUILD_NUMBER}"
     }
 
     stages {
         stage('Checkout') {
             steps {
-                git url: 'https://github.com/group21cc/nginx.git', branch: 'main'
+                container('kaniko') {
+                    git "${GITHUB_REPO}"
+                }
             }
         }
 
-stage('Build & Push with Kaniko') {
-    steps {
-        container('kaniko') {
-            sh '''
-            /kaniko/executor \
-              --context . \
-              --dockerfile ./Dockerfile \
-              --destination=nexus-service.jenkins.svc.cluster.local:8081/test/nginx:${BUILD_NUMBER} \
-              --insecure \
-              --skip-tls-verify
-            '''
-        }
-    }
-}
-
-
-
-
-        stage('Deploy to Kubernetes') {
+        stage('Build & Push Image') {
             steps {
-                sh 'kubectl apply -f k8s-deployment.yaml -n jenkins'
+                container('kaniko') {
+                    sh """
+                      /kaniko/executor \
+                        --context `pwd` \
+                        --dockerfile `pwd`/Dockerfile \
+                        --destination=${NEXUS_REGISTRY}/${NEXUS_REPO_PATH}/${IMAGE_NAME}:${IMAGE_TAG} \
+                        --insecure \
+                        --skip-tls-verify
+                    """
+                }
             }
         }
     }
