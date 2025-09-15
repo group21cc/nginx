@@ -1,27 +1,11 @@
 pipeline {
-    agent {
-        kubernetes {
-            yaml """
-apiVersion: v1
-kind: Pod
-spec:
-  containers:
-  - name: docker
-    image: docker:24.0-dind
-    securityContext:
-      privileged: true
-    command:
-    - cat
-    tty: true
-"""
-        }
-    }
+    agent any
 
     environment {
         // GitHub repo
         GITHUB_REPO = "https://github.com/group21cc/nginx.git"
 
-        // Nexus internal DNS and port
+        // Nexus internal DNS and port (use namespace)
         NEXUS_REGISTRY = "nexus-service.jenkins.svc.cluster.local:8081"
 
         // Docker repository and tag
@@ -44,29 +28,20 @@ spec:
             }
         }
 
-        stage('Build & Push Docker Image') {
+        stage('Build Docker Image') {
             steps {
-                container('docker') {
-                    withCredentials([
-                        usernamePassword(
-                            credentialsId: "${DOCKER_CREDENTIALS}", 
-                            usernameVariable: 'USER', 
-                            passwordVariable: 'PASS'
-                        )
-                    ]) {
-                        sh """
-                        echo "Logging in to Nexus Docker Registry..."
-                        docker login -u $USER -p $PASS $NEXUS_REGISTRY
-
-                        echo "Building Docker image..."
-                        docker build -t ${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG} .
-
-                        echo "Pushing Docker image..."
-                        docker push ${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG}
-
-                        docker logout $NEXUS_REGISTRY
-                        """
-                    }
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: "${DOCKER_CREDENTIALS}",
+                        usernameVariable: 'USER',
+                        passwordVariable: 'PASS'
+                    )
+                ]) {
+                    sh """
+                    echo "$PASS" | docker login ${NEXUS_REGISTRY} --username $USER --password-stdin
+                    docker build -t ${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG} .
+                    docker push ${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG}
+                    """
                 }
             }
         }
