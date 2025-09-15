@@ -7,6 +7,7 @@ pipeline {
 apiVersion: v1
 kind: Pod
 spec:
+  serviceAccountName: jenkins-sa   # Use ServiceAccount with deploy permissions
   containers:
   - name: kaniko
     image: gcr.io/kaniko-project/executor:debug
@@ -38,6 +39,7 @@ spec:
         GITHUB_REPO = "https://github.com/group21cc/nginx.git"
         IMAGE_NAME = "nexus-service.jenkins.svc.cluster.local:8081/test/nginx"
         IMAGE_TAG  = "27"
+        KUBE_NAMESPACE = "jenkins"  // Namespace for deployment
     }
 
     stages {
@@ -66,8 +68,9 @@ spec:
             steps {
                 container('kubectl') {
                     sh """
-                    kubectl apply -f nginx-deployment.yaml
-                    kubectl apply -f nginx-service.yaml
+                    # Apply deployment and service in one namespace
+                    kubectl apply -n ${KUBE_NAMESPACE} -f nginx-deployment.yaml
+                    kubectl apply -n ${KUBE_NAMESPACE} -f nginx-service.yaml
                     """
                 }
             }
