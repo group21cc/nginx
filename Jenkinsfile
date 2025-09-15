@@ -7,7 +7,7 @@ pipeline {
 apiVersion: v1
 kind: Pod
 spec:
-  serviceAccountName: jenkins-sa   # Use ServiceAccount with deploy permissions
+  serviceAccountName: jenkins-sa
   containers:
   - name: kaniko
     image: gcr.io/kaniko-project/executor:debug
@@ -39,7 +39,7 @@ spec:
         GITHUB_REPO = "https://github.com/group21cc/nginx.git"
         IMAGE_NAME = "nexus-service.jenkins.svc.cluster.local:8081/test/nginx"
         IMAGE_TAG  = "27"
-        KUBE_NAMESPACE = "jenkins"  // Namespace for deployment
+        K8S_NAMESPACE = "jenkins"
     }
 
     stages {
@@ -68,9 +68,46 @@ spec:
             steps {
                 container('kubectl') {
                     sh """
-                    # Apply deployment and service in one namespace
-                    kubectl apply -n ${KUBE_NAMESPACE} -f nginx-deployment.yaml
-                    kubectl apply -n ${KUBE_NAMESPACE} -f nginx-service.yaml
+                    # Create a single combined YAML file
+                    cat > k8s-deploy.yaml <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  namespace: ${K8S_NAMESPACE}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: ${IMAGE_NAME}:${IMAGE_TAG}
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+  namespace: ${K8S_NAMESPACE}
+spec:
+  selector:
+    app: nginx
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 80
+  type: ClusterIP
+EOF
+
+                    # Apply combined YAML
+                    kubectl apply -f k8s-deploy.yaml
                     """
                 }
             }
