@@ -6,11 +6,22 @@ apiVersion: v1
 kind: Pod
 spec:
   containers:
-  - name: kaniko
-    image: gcr.io/kaniko-project/executor:debug
+  - name: docker
+    image: docker:24.0-dind
+    securityContext:
+      privileged: true
+    volumeMounts:
+      - mountPath: /var/lib/docker
+        name: docker-graph-storage
     command:
-    - cat
+      - cat
     tty: true
+  - name: jnlp
+    image: jenkins/inbound-agent:latest
+    args: ['\$(JENKINS_SECRET)', '\$(JENKINS_NAME)']
+  volumes:
+    - name: docker-graph-storage
+      emptyDir: {}
 """
         }
     }
@@ -35,23 +46,19 @@ spec:
 
         stage('Build & Push Docker Image') {
             steps {
-                container('kaniko') {
-                    withCredentials([usernamePassword(
-                        credentialsId: "${DOCKER_CREDENTIALS}", 
-                        usernameVariable: 'USER', 
-                        passwordVariable: 'PASS'
-                    )]) {
-                        sh """
-                        mkdir -p /kaniko/.docker
-                        echo '{ "auths": { "${NEXUS_REGISTRY}": { "username": "$USER", "password": "$PASS" } } }' > /kaniko/.docker/config.json
-                        /kaniko/executor \
-                          --context \$(pwd) \
-                          --dockerfile \$(pwd)/Dockerfile \
-                          --destination ${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG} \
-                          --insecure --skip-tls-verify \
-                          --verbosity debug \
-                          --cache=true
-                        """
+                container('docker') {
+                    withCredentials([
+                        usernamePassword(
+                            credentialsId: "${DOCKER_CREDENTIALS}", 
+                            usernameVariable: 'USER', 
+                            passwordVariable: 'PASS'
+                        )
+                    ]) {
+                        sh '''
+                        echo "$PASS" | docker login ${NEXUS_REGISTRY} --username "$USER" --password-stdin
+                        docker build -t ${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG} .
+                        docker push ${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG}
+                        '''
                     }
                 }
             }
@@ -59,14 +66,25 @@ spec:
 
         stage('Deploy to Kubernetes') {
             steps {
-                withCredentials([file(credentialsId: "${KUBECONFIG_CREDENTIALS}", variable: 'KUBECONFIG_FILE')]) {
-                    sh """
+                withCredentials([
+                    file(credentialsId: "${KUBECONFIG_CREDENTIALS}", variable: 'KUBECONFIG_FILE')
+                ]) {
+                    sh '''
                     export KUBECONFIG=$KUBECONFIG_FILE
                     kubectl set image deployment/${K8S_DEPLOYMENT} ${K8S_CONTAINER}=${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG} --record
                     kubectl rollout status deployment/${K8S_DEPLOYMENT}
-                    """
+                    '''
                 }
             }
+        }
+    }
+
+    post {
+        success {
+            echo "Pipeline completed successfully! Docker image pushed and deployed."
+        }
+        failure {
+            echo "Pipeline failed. Check logs for details."
         }
     }
 }
