@@ -30,20 +30,22 @@ spec:
             }
         }
 
-        stage('Build & Push with Kaniko') {
+stage('Build & Push with Kaniko') {
     steps {
         container('kaniko') {
             sh '''
             /kaniko/executor \
               --context . \
               --dockerfile ./Dockerfile \
-              --destination=nexus-service.jenkins.svc.cluster.local:8081/repository/test/nginx:${DOCKER_TAG} \
+              --destination=nexus-service.jenkins.svc.cluster.local:8081/test/nginx:${BUILD_NUMBER} \
               --insecure \
               --skip-tls-verify
             '''
         }
     }
 }
+
+
 
 
         stage('Deploy to Kubernetes') {
