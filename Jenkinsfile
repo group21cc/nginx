@@ -65,52 +65,12 @@ spec:
         }
 
         stage('Deploy to Kubernetes') {
-            steps {
-                container('kubectl') {
-                    sh """
-                    # Create a single combined YAML file
-                    cat > k8s-deploy.yaml <<EOF
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: nginx-deployment
-  namespace: ${K8S_NAMESPACE}
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: nginx
-  template:
-    metadata:
-      labels:
-        app: nginx
-    spec:
-      containers:
-      - name: nginx
-        image: ${IMAGE_NAME}:${IMAGE_TAG}
-        ports:
-        - containerPort: 80
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: nginx-service
-  namespace: ${K8S_NAMESPACE}
-spec:
-  selector:
-    app: nginx
-  ports:
-  - protocol: TCP
-    port: 80
-    targetPort: 80
-  type: ClusterIP
-EOF
-
-                    # Apply combined YAML
-                    kubectl apply -f k8s-deploy.yaml
-                    """
-                }
-            }
+    steps {
+        container('kubectl') {
+            sh """
+            kubectl apply -f /home/jenkins/agent/workspace/test/nginx-deployment.yaml
+            kubectl apply -f /home/jenkins/agent/workspace/test/nginx-service.yaml
+            """
         }
     }
 }
