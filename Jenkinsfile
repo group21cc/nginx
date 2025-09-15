@@ -11,16 +11,14 @@ spec:
   containers:
   - name: kaniko
     image: gcr.io/kaniko-project/executor:debug
-    command:
-    - cat
+    command: [cat]
     tty: true
     volumeMounts:
     - name: docker-config
       mountPath: /kaniko/.docker
   - name: kubectl
     image: bitnami/kubectl:latest
-    command:
-    - cat
+    command: [cat]
     tty: true
   volumes:
   - name: docker-config
@@ -38,7 +36,6 @@ spec:
     environment {
         GITHUB_REPO = "https://github.com/group21cc/nginx.git"
         IMAGE_NAME = "nexus-service.jenkins.svc.cluster.local:8081/test/nginx"
-        IMAGE_TAG  = "27"
         K8S_NAMESPACE = "jenkins"
     }
 
@@ -46,6 +43,9 @@ spec:
         stage('Checkout') {
             steps {
                 git branch: 'main', url: "${GITHUB_REPO}"
+                script {
+                    env.IMAGE_TAG = "build-${BUILD_NUMBER}"
+                }
             }
         }
 
@@ -68,11 +68,20 @@ spec:
             steps {
                 container('kubectl') {
                     sh """
-                    kubectl apply -f nginx-deployment.yaml -n jenkins
-                    kubectl apply -f nginx-service.yaml -n jenkins
+                    kubectl apply -f ${WORKSPACE}/nginx-deployment.yaml -n ${K8S_NAMESPACE}
+                    kubectl apply -f ${WORKSPACE}/nginx-service.yaml -n ${K8S_NAMESPACE}
                     """
                 }
             }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Image pushed and deployed: ${IMAGE_NAME}:${IMAGE_TAG}"
+        }
+        failure {
+            echo "❌ Build or deployment failed."
         }
     }
 }
