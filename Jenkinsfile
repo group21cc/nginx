@@ -65,12 +65,14 @@ spec:
         }
 
         stage('Deploy to Kubernetes') {
-    steps {
-        container('kubectl') {
-            sh """
-            kubectl apply -f /home/jenkins/agent/workspace/test/nginx-deployment.yaml
-            kubectl apply -f /home/jenkins/agent/workspace/test/nginx-service.yaml
-            """
+            steps {
+                container('kubectl') {
+                    sh """
+                    kubectl apply -f nginx-deployment.yaml -n ${K8S_NAMESPACE}
+                    kubectl apply -f nginx-service.yaml -n ${K8S_NAMESPACE}
+                    """
+                }
+            }
         }
     }
 }
