@@ -31,19 +31,20 @@ spec:
         }
 
         stage('Build & Push with Kaniko') {
-            steps {
-                container('kaniko') {
-                    sh '''
-                      /kaniko/executor \
-                        --context `pwd`/nginx \
-                        --dockerfile `pwd`/nginx/Dockerfile \
-                        --destination=nexus-service.jenkins.svc.cluster.local:8081/repository/test/nginx:v1.24 \
-                        --insecure \
-                        --skip-tls-verify
-                    '''
-                }
-            }
+    steps {
+        container('kaniko') {
+            sh '''
+            /kaniko/executor \
+              --context . \
+              --dockerfile ./Dockerfile \
+              --destination=nexus-service.jenkins.svc.cluster.local:8081/repository/test/nginx:${DOCKER_TAG} \
+              --insecure \
+              --skip-tls-verify
+            '''
         }
+    }
+}
+
 
         stage('Deploy to Kubernetes') {
             steps {
