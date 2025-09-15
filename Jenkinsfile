@@ -6,33 +6,31 @@ apiVersion: v1
 kind: Pod
 spec:
   containers:
-  - name: docker
-    image: docker:24.0-dind
-    securityContext:
-      privileged: true
-    volumeMounts:
-      - mountPath: /var/lib/docker
-        name: docker-graph-storage
+  - name: kaniko
+    image: gcr.io/kaniko-project/executor:debug
     command:
-      - cat
+    - cat
     tty: true
-  - name: jnlp
-    image: jenkins/inbound-agent:latest
-    args: ['\$(JENKINS_SECRET)', '\$(JENKINS_NAME)']
-  volumes:
-    - name: docker-graph-storage
-      emptyDir: {}
 """
         }
     }
 
     environment {
+        // GitHub repo
         GITHUB_REPO = "https://github.com/group21cc/nginx.git"
+
+        // Nexus internal DNS and port (use namespace)
         NEXUS_REGISTRY = "nexus-service.jenkins.svc.cluster.local:8081"
+
+        // Docker repository and tag
         DOCKER_REPO = "test/nginx"
         DOCKER_TAG = "v1.${env.BUILD_NUMBER}"
+
+        // Jenkins credentials IDs
         DOCKER_CREDENTIALS = "nexus-docker-credentials"
         KUBECONFIG_CREDENTIALS = "kubeconfig"
+
+        // Kubernetes deployment info
         K8S_DEPLOYMENT = "nginx-deployment"
         K8S_CONTAINER = "nginx"
     }
@@ -44,9 +42,9 @@ spec:
             }
         }
 
-        stage('Build & Push Docker Image') {
+        stage('Build & Push with Kaniko') {
             steps {
-                container('docker') {
+                container('kaniko') {
                     withCredentials([
                         usernamePassword(
                             credentialsId: "${DOCKER_CREDENTIALS}", 
@@ -54,11 +52,16 @@ spec:
                             passwordVariable: 'PASS'
                         )
                     ]) {
-                        sh '''
-                        echo "$PASS" | docker login ${NEXUS_REGISTRY} --username "$USER" --password-stdin
-                        docker build -t ${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG} .
-                        docker push ${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG}
-                        '''
+                        sh """
+                        mkdir -p /kaniko/.docker
+                        echo '{ "auths": { "${NEXUS_REGISTRY}": { "username": "$USER", "password": "$PASS" } } }' > /kaniko/.docker/config.json
+
+                        /kaniko/executor \
+                          --context \$(pwd) \
+                          --dockerfile \$(pwd)/Dockerfile \
+                          --destination ${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG} \
+                          --insecure --skip-tls-verify
+                        """
                     }
                 }
             }
@@ -69,11 +72,11 @@ spec:
                 withCredentials([
                     file(credentialsId: "${KUBECONFIG_CREDENTIALS}", variable: 'KUBECONFIG_FILE')
                 ]) {
-                    sh '''
+                    sh """
                     export KUBECONFIG=$KUBECONFIG_FILE
                     kubectl set image deployment/${K8S_DEPLOYMENT} ${K8S_CONTAINER}=${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG} --record
                     kubectl rollout status deployment/${K8S_DEPLOYMENT}
-                    '''
+                    """
                 }
             }
         }
