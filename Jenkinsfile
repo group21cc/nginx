@@ -23,13 +23,14 @@ spec:
     }
 
     environment {
-        GITHUB_REPO = "https://github.com/group21cc/nginx.git"
-        NEXUS_REGISTRY = "nexus-service.jenkins.svc.cluster.local:8081"
-        DOCKER_REPO = "test/nginx"
-        DOCKER_TAG = "v1.${env.BUILD_NUMBER}"
+        GITHUB_REPO       = "https://github.com/group21cc/nginx.git"
+        NEXUS_REGISTRY    = "nexus-service.jenkins.svc.cluster.local:8081"
+        NEXUS_REPO_NAME   = "test"          // Nexus Docker (hosted) repo name
+        DOCKER_IMAGE      = "nginx"
+        DOCKER_TAG        = "v1.${env.BUILD_NUMBER}"
         DOCKER_CREDENTIALS = "nexus-docker-credentials"
-        K8S_DEPLOYMENT = "nginx-deployment"
-        K8S_CONTAINER = "nginx"
+        K8S_DEPLOYMENT    = "nginx-deployment"
+        K8S_CONTAINER     = "nginx"
     }
 
     stages {
@@ -42,7 +43,9 @@ spec:
         stage('Build Docker Image') {
             steps {
                 container('docker') {
-                    sh "docker build -t ${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG} ./nginx"
+                    sh """
+                        docker build -t ${NEXUS_REGISTRY}/repository/${NEXUS_REPO_NAME}/${DOCKER_IMAGE}:${DOCKER_TAG} ./nginx
+                    """
                 }
             }
         }
@@ -57,7 +60,7 @@ spec:
                     )]) {
                         sh """
                             echo "$PASS" | docker login ${NEXUS_REGISTRY} -u "$USER" --password-stdin
-                            docker push ${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG}
+                            docker push ${NEXUS_REGISTRY}/repository/${NEXUS_REPO_NAME}/${DOCKER_IMAGE}:${DOCKER_TAG}
                         """
                     }
                 }
@@ -67,7 +70,7 @@ spec:
         stage('Deploy to Kubernetes') {
             steps {
                 sh """
-                    kubectl set image deployment/${K8S_DEPLOYMENT} ${K8S_CONTAINER}=${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG} --record
+                    kubectl set image deployment/${K8S_DEPLOYMENT} ${K8S_CONTAINER}=${NEXUS_REGISTRY}/repository/${NEXUS_REPO_NAME}/${DOCKER_IMAGE}:${DOCKER_TAG} --record
                     kubectl rollout status deployment/${K8S_DEPLOYMENT}
                 """
             }
@@ -76,10 +79,10 @@ spec:
 
     post {
         success {
-            echo "Pipeline completed successfully! Docker image pushed and deployed."
+            echo "✅ Pipeline completed successfully! Docker image pushed and deployed."
         }
         failure {
-            echo "Pipeline failed. Check logs."
+            echo "❌ Pipeline failed. Check logs."
         }
     }
 }
