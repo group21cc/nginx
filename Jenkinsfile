@@ -17,7 +17,7 @@ spec:
 
     environment {
     GITHUB_REPO = "https://github.com/group21cc/nginx.git"
-    NEXUS_REGISTRY = "nexus-service.nexus.svc.cluster.local:8888"   // <--- FIXED
+    NEXUS_REGISTRY = "nexus-service.nexus.svc.cluster.local:8081"   // <--- FIXED
     DOCKER_REPO = "test/nginx"
     DOCKER_TAG = "v1.${env.BUILD_NUMBER}"
     DOCKER_CREDENTIALS = "nexus-docker-credentials"
