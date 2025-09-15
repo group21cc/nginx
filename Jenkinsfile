@@ -35,23 +35,24 @@ spec:
         }
 
         stage('Build & Push with Kaniko') {
-            steps {
-                container('kaniko') {
-                    withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS}", usernameVariable: 'USER', passwordVariable: 'PASS')]) {
-                        sh """
-                          mkdir -p /kaniko/.docker
-                          echo "{\\"auths\\":{\\"${NEXUS_REGISTRY}\\":{\\"username\\":\\"$USER\\",\\"password\\":\\"$PASS\\"}}}" > /kaniko/.docker/config.json
+    steps {
+        container('kaniko') {
+            withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS}", usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+                sh """
+                  mkdir -p /kaniko/.docker
+                  echo "{\\"auths\\":{\\"${NEXUS_REGISTRY}\\":{\\"username\\":\\"$USER\\",\\"password\\":\\"$PASS\\"}}}" > /kaniko/.docker/config.json
 
-                          /kaniko/executor \
-                            --context `pwd` \
-                            --dockerfile `pwd`/Dockerfile \
-                            --destination ${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG} \
-                            --insecure --skip-tls-verify
-                        """
-                    }
-                }
+                  /kaniko/executor \
+                    --context \$(pwd) \
+                    --dockerfile \$(pwd)/Dockerfile \
+                    --destination ${NEXUS_REGISTRY}/${DOCKER_REPO}:${DOCKER_TAG} \
+                    --insecure --skip-tls-verify --verbosity debug
+                """
             }
         }
+    }
+}
+
 
         stage('Deploy to Kubernetes') {
             steps {
